@@ -1,0 +1,125 @@
+---
+title: "Sentiment Analysis (Energy Crude Oil Tweets)"
+output: html_notebook
+---
+***Volume of Tweets by Hour***
+```{r}
+.libPaths("C:/Users/e137660/Downloads/R Network Directory")
+library(caTools)
+library(tidyverse)
+library(tidytext)
+library(glue)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(plotly)
+data<-read.csv("tweets.csv",stringsAsFactors=FALSE)
+
+tweets<- data%>% select(text, screenName, retweetCount, created)
+head(tweets$text)
+#removing http elements manually
+tweets$stripped <- gsub("http\\S+","", tweets$text)
+head(tweets$stripped)
+
+#convert created column to posix
+str(tweets$created)
+tweets$created<-gsub("Z","", tweets$created)
+tweets$created<-gsub("T"," ", tweets$created)
+tweets$createdtime<-as.POSIXct(tweets$created, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+tweets$created<-as.POSIXlt(tweets$created,format="%Y-%m-%d %H:%M:%S")
+tweets$hour<- hour(tweets$created)
+
+p1<-ggplot(tweets, aes(x = hour))+
+  geom_density()+scale_x_continuous(breaks=seq(0,23,2))
+
+
+fig<-ggplotly(p1)
+fig
+```
+
+***Sentiment Plot***
+```{r}
+#install.packages("tm")
+#install.packages("SentimentAnalysis")
+library(tm)
+library(SentimentAnalysis)
+text_cor<- Corpus(VectorSource(tweets$text))
+
+text_cor<-tm_map(text_cor, tolower)
+text_cor<-tm_map(text_cor, removeWords, stopwords("english"))
+text_cor<-tm_map(text_cor, removeWords, c("rt", "re"))
+text_cor<-tm_map(text_cor, removePunctuation)
+text_df<-data.frame(text_clean = get("content", text_cor), stringAsFactors = FALSE)
+text_df<-gsub(pattern = "[^[:alnum:][:space:]]", " ", text_df$text_clean)
+text_df<-gsub(pattern = "[^0-9A-Za-z///' ]", " ", text_df)
+text_df<-gsub("https"," ", text_df)
+
+
+text_sentiment<-analyzeSentiment(text_df)
+
+text_sentiment<- dplyr::select(text_sentiment, SentimentGI, SentimentHE, SentimentLM, SentimentQDAP, WordCount)
+
+text_sentiment <- dplyr::mutate(text_sentiment, 
+                                 mean_sentiment = rowMeans(text_sentiment[,-5]))
+
+text_sentiment <- dplyr::select(text_sentiment, 
+                                 WordCount, 
+                                 mean_sentiment)
+
+text_df <- cbind.data.frame(text_df, text_sentiment)
+text_df$retweet<- tweets$retweetCount
+
+text_df_positive <- filter(text_df, mean_sentiment > 0)
+text_df_negative <- filter(text_df, mean_sentiment < 0)
+text_df_neutral<- filter(text_df, mean_sentiment == 0)
+
+
+text_df$sentimentbucket <- ifelse(text_df$mean_sentiment>0, 'Positive', ifelse(text_df$mean_sentiment<0, 'Negative','Neutral'))
+
+t<-text_df%>%
+  count(sentimentbucket)
+
+ggplot(text_df, aes(factor(sentimentbucket)))+
+  geom_bar(fill = "darkblue")
+
+
+
+
+
+```
+***Word Count***
+```{r}
+text_df$hour <-tweets$hour
+
+p<-ggplot(text_df, aes(x = hour, col = sentimentbucket))+
+  geom_density()+scale_x_continuous(breaks=seq(0,23,2))
+p
+```
+
+***Word Count**
+```{r}
+p2<-ggplot(text_df, aes(x = WordCount))+
+  geom_bar(fill = "darkblue")+scale_x_continuous(breaks=seq(0,20,1))
+
+p2
+
+
+)
+```
+***Word count by Sentiment***
+```{r}
+p3<- ggplot(text_df, aes(x = sentimentbucket, y = WordCount, color = sentimentbucket))+
+  geom_violin()+scale_y_continuous(breaks=seq(0,30,1))+geom_jitter()
+
+p3
+```
+***Retweet by Sentiment***
+```{r}
+p4<- ggplot(text_df, aes(x = sentimentbucket, y = retweet, color = sentimentbucket))+
+  geom_point()+scale_y_continuous(breaks=seq(0,50,1))+geom_jitter()
+
+p4
+```
+
+
